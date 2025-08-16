@@ -20,11 +20,8 @@ logger = logging.getLogger(__name__)
 # ----------------------------------------------------------------
 # 步骤 2: 从环境变量中读取密钥 (部署到Render的关键)
 # ----------------------------------------------------------------
-# 我们不再将密钥直接写入代码，而是从Render的运行环境中读取
-# 这样更安全，也方便管理
 TELEGRAM_BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
-PROXY_URL = os.environ.get('PROXY_URL', "") # 代理是可选的
 
 # ----------------------------------------------------------------
 # 步骤 3: 定义“林州主人”的核心人设和指令
@@ -64,11 +61,6 @@ BOT_PERSONA_PROMPT = """
 # 步骤 4: 配置和初始化AI模型
 # ----------------------------------------------------------------
 try:
-    if PROXY_URL:
-        import google.generativeai.transport as transport
-        transport.configure_proxies({'https': PROXY_URL})
-        logger.info(f"已配置网络代理: {PROXY_URL}")
-
     genai.configure(api_key=GEMINI_API_KEY)
 
     safety_settings = [
