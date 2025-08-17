@@ -8,7 +8,7 @@ import asyncio
 import os # 导入os库
 import google.generativeai as genai
 from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, ExtBot
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
 # 配置日志
 logging.basicConfig(
@@ -18,12 +18,11 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ----------------------------------------------------------------
-# 步骤 2: 从环境变量中读取密钥和代理
+# 步骤 2: 从环境变量中读取密钥
 # ----------------------------------------------------------------
+# 这是最干净、最安全的版本，它只从Render的环境变量中读取密钥
 TELEGRAM_BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
-# Render服务器在国外，通常不需要为Gemini设置代理，但我们保留这个选项
-PROXY_URL = os.environ.get('PROXY_URL', "") 
 
 # ----------------------------------------------------------------
 # 步骤 3: 定义“林州主人”的核心人设和指令 (2.0升级版)
@@ -62,14 +61,6 @@ BOT_PERSONA_PROMPT = """
 # 步骤 4: 配置和初始化AI模型
 # ----------------------------------------------------------------
 try:
-    # 为Gemini设置代理（如果需要的话）
-    if PROXY_URL:
-        # 这是一个变通方法，因为google-generativeai库没有直接的代理设置
-        # 我们通过设置全局环境变量来影响它
-        os.environ['HTTP_PROXY'] = PROXY_URL
-        os.environ['HTTPS_PROXY'] = PROXY_URL
-        logger.info(f"已为Gemini设置网络代理: {PROXY_URL}")
-
     genai.configure(api_key=GEMINI_API_KEY)
 
     safety_settings = [
@@ -164,28 +155,8 @@ def main() -> None:
         logger.error("错误：环境变量 GEMINI_API_KEY 未设置！")
         return
 
-    # **【终极修复】为Telegram Bot明确设置代理**
-    # 我们需要一个代理来连接Telegram的服务器
-    # Render服务器在国外，通常不需要代理，但为了确保成功，我们加上这个设置
-    # 你可以在Render的环境变量中设置 TELEGRAM_PROXY_URL
-    TELEGRAM_PROXY_URL = os.environ.get('TELEGRAM_PROXY_URL')
-
-    # 创建一个Application构建器
-    builder = Application.builder().token(TELEGRAM_BOT_TOKEN)
-
-    # 如果代理地址存在，就为Telegram Bot配置代理
-    if TELEGRAM_PROXY_URL:
-        # 创建一个自定义的Bot对象，它知道如何使用代理
-        custom_bot = ExtBot(
-            token=TELEGRAM_BOT_TOKEN,
-            proxy_url=TELEGRAM_PROXY_URL,
-            get_updates_proxy_url=TELEGRAM_PROXY_URL
-        )
-        builder.bot(custom_bot)
-        logger.info(f"已为Telegram Bot配置网络代理: {TELEGRAM_PROXY_URL}")
-
-    # 使用构建器创建Application
-    application = builder.build()
+    # 创建一个标准的Application，不带任何代理设置
+    application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
