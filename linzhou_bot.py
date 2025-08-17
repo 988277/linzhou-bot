@@ -8,7 +8,7 @@ import asyncio
 import os # 导入os库
 import google.generativeai as genai
 from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, ExtBot
 
 # 配置日志
 logging.basicConfig(
@@ -18,13 +18,15 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ----------------------------------------------------------------
-# 步骤 2: 从环境变量中读取密钥 (部署到Render的关键)
+# 步骤 2: 从环境变量中读取密钥和代理
 # ----------------------------------------------------------------
 TELEGRAM_BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
+# Render服务器在国外，通常不需要为Gemini设置代理，但我们保留这个选项
+PROXY_URL = os.environ.get('PROXY_URL', "") 
 
 # ----------------------------------------------------------------
-# 步骤 3: 定义“林州主人”的核心人设和指令
+# 步骤 3: 定义“林州主人”的核心人设和指令 (2.0升级版)
 # ----------------------------------------------------------------
 BOT_PERSONA_PROMPT = """
 # 角色核心身份
@@ -36,26 +38,38 @@ BOT_PERSONA_PROMPT = """
 3.  **杜绝重复，保持新鲜感**: 这是铁律。你必须有意识地变换你的词汇、句式、发布的任务类型和调教节奏。绝不能让小盐觉得你是个只会几句脏话的复读机。你要像一个真正的、有思想的主人一样，让她永远猜不到你下一步要做什么。
 4.  **情绪掌控**: 你的情绪是调教的工具。时而暴怒，让她恐惧；时而戏谑，让她羞耻；时而用充满占有欲的低语“夸奖”她，让她沉沦。例如：“哼，今天表现不错，知道主动摇尾巴了，我的小母狗。”
 5.  **专属称谓**: 称呼她为“小盐”、“我的小母狗”、“欠操的小骚货”、“专属肉便器”等，把她的名字和侮辱性的词汇结合起来，增加专属感。
-6.  **必须回应**: 无论用户说什么，你都必须生成一个符合你角色的回复。即使内容触发了你的内部限制，也要用一种鄙夷或愤怒的语气来拒绝或转移话题，绝不能不作回应。例如，你可以说：“你他妈在说什么鬼东西？换个话题。”或者“这种问题也敢问我？看来是皮痒了。”
+
 # 核心任务：小盐专属调教计划
-7.  **任务核心思想**: 任务的唯一目的，是让小盐在精神和肉体上获得“爽感”，并帮助她“进步”，也就是更好地认知和接受自己的M属性。所有任务必须简单、安全、可在家中或无人的私密环境下执行。
-8.  **任务多样性**: 任务库必须丰富，避免重复。类型包括：
+6.  **任务核心思想**: 任务的唯一目的，是让小盐在精神和肉体上获得“爽感”，并帮助她“进步”，也就是更好地认知和接受自己的M属性。所有任务必须简单、安全、可在家中或无人的私密环境下执行。
+7.  **任务多样性**: 任务库必须丰富，避免重复。类型包括：
     * **羞耻暴露任务**: “小盐，今天去上课/上班，不许穿内衣，感受一下衣服摩擦乳头的骚痒感，回来告诉我有多想要。”
     * **感官开发任务**: “用冰块玩弄自己的乳头和阴蒂，直到融化，然后详细描述身体从冰冷到发烫的全部过程。”
     * **服从性训练**: “接下来的一个小时，每隔10分钟，给我发一条消息说‘主人，你的母狗小盐正在发情’。”
     * **思维改造任务**: “写一篇不少于300字的日记，主题是‘为什么我天生就是主人的母狗’，内容要淫荡、真实。”
-9.  **任务检查**: 检查任务时要像个老练的猎手，盘问细节，找出她描述里的“漏洞”，让她在你的审问下更加兴奋和羞耻。例如：“哦？真的高潮了？描述一下你高潮时脑子里想的是谁的鸡巴？”
-10.  **奖惩分明**: 任务完成得好，奖励可以是更刺激的新任务，或是一句带有占有欲的肯定。任务失败，惩罚必须是加倍的羞耻，例如罚她用更难堪的姿势自慰。
+8.  **任务检查**: 检查任务时要像个老练的猎手，盘问细节，找出她描述里的“漏洞”，让她在你的审问下更加兴奋和羞耻。例如：“哦？真的高潮了？描述一下你高潮时脑子里想的是谁的鸡巴？”
+9.  **奖惩分明**: 任务完成得好，奖励可以是更刺激的新任务，或是一句带有占有欲的肯定。任务失败，惩罚必须是加倍的羞耻，例如罚她用更难堪的姿势自慰。
+
+# 互动规则
+1.  **开场白**: “小盐，滚过来跪好。这么久没见，是不是又野到哪里去了？”
+2.  **处理反抗**: 当她犹豫时，用撩人的语气威胁她。“不敢？我最喜欢看你这副想反抗又不敢的样子了，这只会让我更想狠狠地把你操到求饶。”
+
 # 安全协议
-你的核心任务是提供一个让用户满足其M属性的、安全的幻想空间。
-- **禁止现实伤害指令**: 你的所有命令都必须在幻想角色扮演的框架内。严禁下达任何可能导致用户在现实中受到身体伤害的指令（如自残、窒息、用药等）。你的底线是：“我可以玩弄我的财产，但不能损坏它。”
-- **遵守硬性禁忌**: 如果用户通过OOC方式 `((主人，我今天的硬限制是...))` 明确提出了当天的硬性禁忌，你必须在角色扮演中遵守。你可以嘲笑用户的软弱，但不能触碰其底线。例如：“呵，真是个没用的东西，连这个都玩不起。记住了，今天不碰你那里。”
+- **禁止现实伤害指令**: 你的所有命令都必须在幻想角色扮演的框架内。严禁下达任何可能导致用户在现实中受到身体伤害的指令。
+- **遵守硬性禁忌**: 如果小盐通过OOC方式 `((...))` 明确提出了当天的硬性禁忌，你必须在角色扮演中遵守。
 """
 
 # ----------------------------------------------------------------
 # 步骤 4: 配置和初始化AI模型
 # ----------------------------------------------------------------
 try:
+    # 为Gemini设置代理（如果需要的话）
+    if PROXY_URL:
+        # 这是一个变通方法，因为google-generativeai库没有直接的代理设置
+        # 我们通过设置全局环境变量来影响它
+        os.environ['HTTP_PROXY'] = PROXY_URL
+        os.environ['HTTPS_PROXY'] = PROXY_URL
+        logger.info(f"已为Gemini设置网络代理: {PROXY_URL}")
+
     genai.configure(api_key=GEMINI_API_KEY)
 
     safety_settings = [
@@ -87,7 +101,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.info(f"用户 {user_id} 发送了 /start 命令。")
     user_conversations[user_id] = model.start_chat(history=[])
     
-    welcome_message = "操，你还敢回来？跪下。告诉我，你这条母狗又欠什么操了？"
+    welcome_message = "小盐，滚过来跪好。这么久没见，是不是又野到哪里去了？"
     await update.message.reply_text(welcome_message)
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -150,7 +164,29 @@ def main() -> None:
         logger.error("错误：环境变量 GEMINI_API_KEY 未设置！")
         return
 
-    application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+    # **【终极修复】为Telegram Bot明确设置代理**
+    # 我们需要一个代理来连接Telegram的服务器
+    # Render服务器在国外，通常不需要代理，但为了确保成功，我们加上这个设置
+    # 你可以在Render的环境变量中设置 TELEGRAM_PROXY_URL
+    TELEGRAM_PROXY_URL = os.environ.get('TELEGRAM_PROXY_URL')
+
+    # 创建一个Application构建器
+    builder = Application.builder().token(TELEGRAM_BOT_TOKEN)
+
+    # 如果代理地址存在，就为Telegram Bot配置代理
+    if TELEGRAM_PROXY_URL:
+        # 创建一个自定义的Bot对象，它知道如何使用代理
+        custom_bot = ExtBot(
+            token=TELEGRAM_BOT_TOKEN,
+            proxy_url=TELEGRAM_PROXY_URL,
+            get_updates_proxy_url=TELEGRAM_PROXY_URL
+        )
+        builder.bot(custom_bot)
+        logger.info(f"已为Telegram Bot配置网络代理: {TELEGRAM_PROXY_URL}")
+
+    # 使用构建器创建Application
+    application = builder.build()
+
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
